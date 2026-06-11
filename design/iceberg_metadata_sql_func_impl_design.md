@@ -555,20 +555,19 @@ SQL 自定义函数通过**元信息模块**操作元信息表。本章描述 SQ
 
 ### 5.6 create_namespace
 
-**功能**：创建新的命名空间。采用"先写元信息表、后写 S3"的顺序，利用元信息表主键约束仲裁并发冲突，避免产生 S3 孤儿文件。
+**功能**：创建新的命名空间。通过元信息表主键约束仲裁并发冲突。
 
 **接口参数**：
 - `p_namespace`：命名空间名称（TEXT 类型）。不能为 NULL 或空字符串。
-- `p_properties`：命名空间属性（JSONB 类型，可选，默认为 NULL）。若指定，必须为 JSONB object 格式。可包含 "location" key 用于指定 S3 存储路径。
+- `p_properties`：命名空间属性（JSONB 类型，可选，默认为 NULL）。若指定，必须为 JSONB object 格式。
 
-**返回值**：JSONB 格式，包含创建后的命名空间名称和完整的 properties（含 SDK 返回的 location 字段）。
+**返回值**：JSONB 格式，包含创建后的命名空间名称和完整的 properties。
 
 **返回值样例**：
 ```json
 {
   "namespace": ["<命名空间层级1>", "<命名空间层级2>"],
   "properties": {
-    "location": "s3://<bucket>/<warehouse>/<命名空间路径>",
     "<自定义属性key>": "<自定义属性value>"
   }
 }
@@ -577,10 +576,8 @@ SQL 自定义函数通过**元信息模块**操作元信息表。本章描述 SQ
 **实现逻辑**：
 1. 校验入参 p_namespace 是否为 NULL 或空字符串。若是，则报P0001错误，提示"namespace must not be empty"；
 2. 若 p_properties 不为 NULL，校验其是否为合法的 JSONB object 格式。若不是，则报P0001错误，提示"properties must be a valid JSONB object"；
-3. 先写元信息表（利用主键约束仲裁并发冲突，详见第6章）。将 p_properties 转为字符串（NULL 则转为 "{}"）。通过 META 检查该命名空间是否已在元信息表中存在，若已存在则报P0005错误，提示"namespace already exists"。若不存在，则通过 META 写入命名空间记录。若用户已在 p_properties 中指定了 location，则直接使用该值写入；否则先用临时值占位，待 SDK 返回实际路径后再更新；
-4. 通过 SDK 创建 namespace（解析 S3 路径并创建 marker）。若 SDK 返回错误消息，则将其包装为 ServiceUnavailable JSON 格式后报P0009错误，提示SDK返回的错误信息。若此步骤失败，事务将回滚，步骤3 写入的元信息表记录自动撤销；
-5. 若 p_properties 中不包含 "location" key，则通过 META 更新命名空间 properties，将 SDK 返回的 location 写入；
-6. 通过 META 重新读取命名空间信息，将名称和完整的 properties 包装为 JSONB 格式返回。
+3. 写元信息表（利用主键约束仲裁并发冲突，详见第6章）。将 p_properties 转为字符串（NULL 则转为 "{}"）。通过 META 检查该命名空间是否已在元信息表中存在，若已存在则报P0005错误，提示"namespace already exists"。若不存在，则通过 META 写入命名空间记录；
+4. 通过 META 重新读取命名空间信息，将名称和完整的 properties 包装为 JSONB 格式返回。
 
 **流程图**：
 ```
@@ -620,37 +617,14 @@ SQL 自定义函数通过**元信息模块**操作元信息表。本章描述 SQ
                                                        │
                                                        ▼
                                             ┌─────────────────────┐
-                                            │ 通过 SDK 创建         │
-                                            │ namespace (S3 marker) │
+                                            │ 通过 META 重新读取   │
+                                            │ 命名空间信息         │
                                             └──────────┬──────────┘
                                                        │
-                                                  ┌────┴────┐
-                                                  │ SDK错误?│
-                                                  │ 是      │ 否
-                                                  ▼         ▼
-                                          ┌───────────┐  ┌─────────────────┐
-                                          │ 包装为     │  │ p_properties 不含 │
-                                          │ ServiceUn- │  │ location key?    │
-                                          │ available  │  └────────┬────────┘
-                                          │ JSON 报     │          │
-                                          │ P0009       │     ┌────┴────┐
-                                          │ 事务回滚   │     │ 是      │ 否
-                                          └───────────┘     ▼         │
-                                                     ┌───────────┐    │
-                                                     │ 通过 META  │    │
-                                                     │ 更新 location│   │
-                                                     └─────┬─────┘    │
-                                                           │          │
-                                                           ▼          ▼
-                                                     ┌─────────────────────┐
-                                                     │ 通过 META 重新读取   │
-                                                     │ 命名空间信息         │
-                                                     └──────────┬──────────┘
-                                                                │
-                                                                ▼
-                                                     ┌─────────────────────┐
-                                                     │ 包装为 JSONB 返回    │
-                                                     └─────────────────────┘
+                                                       ▼
+                                            ┌─────────────────────┐
+                                            │ 包装为 JSONB 返回    │
+                                            └─────────────────────┘
 ```
 
 ### 5.7 drop_namespace
@@ -1447,7 +1421,7 @@ SQL 自定义函数可能被多个客户端并发调用。以下分析每个写�
 
 | 函数 | 写顺序 | 并发机制 | 安全？ |
 |------|--------|---------|--------|
-| `create_namespace` | **通过 META 写入 → 通过 SDK 创建 namespace** | 通过 META 写入时 PK `(namespace)` 约束仲裁冲突。后到达的请求阻塞等待→前一个 COMMIT 后→PK 冲突→P0005，未调用 SDK | ✅ |
+| `create_namespace` | **通过 META 写入** | 通过 META 写入时 PK `(namespace)` 约束仲裁冲突。后到达的请求阻塞等待→前一个 COMMIT 后→PK 冲突→P0005 | ✅ |
 | `drop_namespace` | **通过 META 删除 → 通过 SDK 清理 namespace** | 通过 META 删除在事务中。通过 SDK 清理为 best-effort | ✅ |
 | `update_namespace_properties` | 纯 META（行锁 → 更新） | 行锁串行化。不涉及 SDK | ✅ |
 | `rename_table` | **通过 META 更新 → (可选) 通过 SDK 迁移 S3 路径** | 通过 META 的 PK 约束仲裁目标表名冲突。通过 SDK 迁移为可选预留 | ✅ |
@@ -1472,7 +1446,7 @@ Request B: ──通过 SDK 创建表──┴──DDL 模块创建存储──
 - META 写入时的 PK `(namespace, table_name)` 是最终冲突仲裁——只有一个请求成功
 - 失败的请求：事务回滚 → DDL 创建的表自动删除（openGauss DDL 是事务性的）→ SDK 写入的 S3 metadata 成为孤儿文件
 - **孤儿风险可接受**：同一表的并发创建是极端低概率事件，即使发生也只有一个孤儿 metadata JSON 文件（几 KB），不影响系统正确性
-- `create_namespace` 无此问题：通过 META 写入先于 SDK，并发请求在 META 层即被阻塞
+- `create_namespace` 无此问题：仅通过 META 写入，并发请求在 META 层即被阻塞
 
 ### 6.3 `commit_table` / `add_column` 的行锁串行化
 
@@ -1490,7 +1464,7 @@ Request B: ──通过 META 读取并加锁──┴── [阻塞] ───�
 
 | 函数 | 失败场景 | 结果 |
 |------|---------|------|
-| `create_namespace` | 通过 META 写入成功 → 通过 SDK 创建失败 | ✅ 事务回滚，META 写入撤销，SDK 写入失败无残留 |
+
 | `create_table` | 通过 SDK 创建成功 → DDL 创建成功 → 通过 META 写入冲突 | ⚠️ 事务回滚，DDL 表自动删除（DDL 事务性），S3 残留孤儿 metadata JSON（低概率，可接受） |
 | `create_table` | 通过 SDK 创建成功 → DDL 创建失败 | ⚠️ 事务回滚，S3 残留孤儿 metadata JSON |
 | `commit_table` | 通过 META 加锁成功 → 通过 SDK 提交成功 → 通过 META 更新（乐观锁）失败 | ⚠️ 事务回滚，S3 残留孤儿 metadata JSON（行锁下极少发生） |
