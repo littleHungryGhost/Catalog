@@ -25,7 +25,9 @@ SELECT iceberg_catalog.create_table(
     '{"type":"struct","fields":[{"id":1,"name":"id","type":"long","required":true}]}'::jsonb
 ) AS create_c;
 
--- Create 5 tables in lt_page_ns for pagination tests
+-- Create 7 tables in lt_page_ns for pagination tests
+-- Names with length % 3 != 0 produce base64 page tokens with '=' padding,
+-- which triggered a b64_decode buffer overflow (fixed in metadata.cpp).
 SELECT iceberg_catalog.create_table(
     'lt_page_ns', 'p01',
     '{"type":"struct","fields":[{"id":1,"name":"id","type":"long","required":true}]}'::jsonb
@@ -44,6 +46,14 @@ SELECT iceberg_catalog.create_table(
 );
 SELECT iceberg_catalog.create_table(
     'lt_page_ns', 'p05',
+    '{"type":"struct","fields":[{"id":1,"name":"id","type":"long","required":true}]}'::jsonb
+);
+SELECT iceberg_catalog.create_table(
+    'lt_page_ns', 'p006',
+    '{"type":"struct","fields":[{"id":1,"name":"id","type":"long","required":true}]}'::jsonb
+);
+SELECT iceberg_catalog.create_table(
+    'lt_page_ns', 'p007',
     '{"type":"struct","fields":[{"id":1,"name":"id","type":"long","required":true}]}'::jsonb
 );
 
@@ -133,7 +143,7 @@ SELECT jsonb_array_length(
 SELECT
     jsonb_array_length(
         (iceberg_catalog.list_tables('lt_page_ns', 100))->'identifiers'
-    ) = 5 AS t7_all_count,
+    ) = 7 AS t7_all_count,
     ((iceberg_catalog.list_tables('lt_page_ns', 100))->>'next-page-token') IS NULL
     AS t7_no_next_token;
 
@@ -174,6 +184,14 @@ ROLLBACK TO SAVEPOINT sp_missing_ns;
 SAVEPOINT sp_bad_token;
 SELECT iceberg_catalog.list_tables('lt_ns', 10, 'not-a-valid-base64-token!!!');
 ROLLBACK TO SAVEPOINT sp_bad_token;
+
+-- ============================================================================
+-- T11: 验证带 '=' 填充的 page_token (b64_decode buffer overflow fix)
+-- p006/p007 的 name 长度为 4 字节 → "last" 为 4 字节 → base64 有 '=' 填充
+-- 之前触发 PANIC: detected write past chunk end in ExprContext
+-- ============================================================================
+
+SELECT (iceberg_catalog.list_tables('lt_page_ns', 2)->>'next-page-token') LIKE '%=' AS t11_token_has_padding;
 
 -- Cleanup
 DROP TABLE IF EXISTS _lt_page_token;
