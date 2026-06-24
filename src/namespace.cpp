@@ -20,6 +20,7 @@
 
 #include "errors.h"
 #include "iceberg_catalog.h"
+#include "json_util.h"
 #include "metadata.h"
 #include "namespace.h"
 
@@ -135,23 +136,16 @@ iceberg_create_namespace(PG_FUNCTION_ARGS)
     /* 3. Validate p_properties (if provided, must be a JSONB object) */
     if (p_properties != NULL)
     {
-        Datum type_datum = DirectFunctionCall1(jsonb_typeof,
-                               JsonbGetDatum(p_properties));
-        char *type_str = text_to_cstring(DatumGetTextP(type_datum));
-
-        if (strcmp(type_str, "object") != 0)
+        if (!iceberg_jsonb_is_type(p_properties, "object"))
             ereport(ERROR,
                     (errcode(ERRCODE_ICEBERG_INVALID_PARAM),
                      errmsg("p_properties must be a JSONB object")));
-        pfree(type_str);
     }
 
     /* 4. Serialize properties for InsertNamespace and response */
     char *props_str;
     if (p_properties != NULL)
-        props_str = DatumGetCString(
-            DirectFunctionCall1(jsonb_out,
-                JsonbGetDatum(p_properties)));
+        props_str = iceberg_jsonb_to_cstring(p_properties);
     else
         props_str = pstrdup("{}");
 
@@ -247,15 +241,10 @@ iceberg_update_namespace_properties(PG_FUNCTION_ARGS)
     /* 4. Validate: p_removals (if non-NULL) must be a JSONB array */
     if (p_removals != NULL)
     {
-        Datum type_datum = DirectFunctionCall1(jsonb_typeof,
-                               JsonbGetDatum(p_removals));
-        char *type_str = text_to_cstring(DatumGetTextP(type_datum));
-
-        if (strcmp(type_str, "array") != 0)
+        if (!iceberg_jsonb_is_type(p_removals, "array"))
             ereport(ERROR,
                     (errcode(ERRCODE_ICEBERG_INVALID_PARAM),
                      errmsg("p_removals must be a JSONB array")));
-        pfree(type_str);
     }
 
     if (p_removals != NULL)
@@ -278,15 +267,10 @@ iceberg_update_namespace_properties(PG_FUNCTION_ARGS)
     /* 5. Validate: p_updates (if non-NULL) must be a JSONB object */
     if (p_updates != NULL)
     {
-        Datum type_datum = DirectFunctionCall1(jsonb_typeof,
-                               JsonbGetDatum(p_updates));
-        char *type_str = text_to_cstring(DatumGetTextP(type_datum));
-
-        if (strcmp(type_str, "object") != 0)
+        if (!iceberg_jsonb_is_type(p_updates, "object"))
             ereport(ERROR,
                     (errcode(ERRCODE_ICEBERG_INVALID_PARAM),
                      errmsg("p_updates must be a JSONB object")));
-        pfree(type_str);
     }
 
     /* 6. Validate removals ∩ updates = ∅ */
