@@ -1565,10 +1565,12 @@ b64_decode(const char *src, int srclen, int *outlen)
     if (srclen % 4 != 0)
         return NULL;
 
+    int padded_len = srclen;        /* save padded length for allocation */
+
     while (srclen > 0 && src[srclen - 1] == '=')
         srclen--;
 
-    out = (char *) palloc((srclen / 4) * 3 + 1);
+    out = (char *) palloc((padded_len / 4) * 3 + 1);
 
     for (i = 0, j = 0; i < srclen; i += 4)
     {

@@ -44,7 +44,9 @@ SELECT iceberg_catalog.create_table(
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"config": {}, "metadata": {"refs": {}, "schemas": [{"type": "struct", "fields": [{"id": 1, "name": "id", "type": "long", "required": true}], "schema-id": 0}], "location": "file:///tmp/iceberg_warehouse/lt_ns/tbl_c", "table-uuid": "<uuid>", "sort-orders": [{"fields": [], "order-id": 0}], "format-version": 2, "last-column-id": 1, "default-spec-id": 0, "last-updated-ms": <ts>, "partition-specs": [{"fields": [], "spec-id": 0}], "current-schema-id": 0, "last-partition-id": 999, "last-sequence-number": 0, "default-sort-order-id": 0}, "metadata-location": "file:///tmp/iceberg_warehouse/lt_ns/tbl_c/metadata/00000-<uuid>.metadata.json"}
 (1 row)
--- Create 5 tables in lt_page_ns for pagination tests
+-- Create 7 tables in lt_page_ns for pagination tests
+-- Names with length % 3 != 0 produce base64 page tokens with '=' padding,
+-- which triggered a b64_decode buffer overflow (fixed in metadata.cpp).
 SELECT iceberg_catalog.create_table(
     'lt_page_ns', 'p01',
     '{"type":"struct","fields":[{"id":1,"name":"id","type":"long","required":true}]}'::jsonb
@@ -84,6 +86,22 @@ SELECT iceberg_catalog.create_table(
                                                                                                                                                                                                                                                                                                                                                               create_table                                                                                                                                                                                                                                                                                                                                                               
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"config": {}, "metadata": {"refs": {}, "schemas": [{"type": "struct", "fields": [{"id": 1, "name": "id", "type": "long", "required": true}], "schema-id": 0}], "location": "file:///tmp/iceberg_warehouse/lt_page_ns/p05", "table-uuid": "<uuid>", "sort-orders": [{"fields": [], "order-id": 0}], "format-version": 2, "last-column-id": 1, "default-spec-id": 0, "last-updated-ms": <ts>, "partition-specs": [{"fields": [], "spec-id": 0}], "current-schema-id": 0, "last-partition-id": 999, "last-sequence-number": 0, "default-sort-order-id": 0}, "metadata-location": "file:///tmp/iceberg_warehouse/lt_page_ns/p05/metadata/00000-<uuid>.metadata.json"}
+(1 row)
+SELECT iceberg_catalog.create_table(
+    'lt_page_ns', 'p006',
+    '{"type":"struct","fields":[{"id":1,"name":"id","type":"long","required":true}]}'::jsonb
+);
+                                                                                                                                                                                                                                                                                                                                                               create_table                                                                                                                                                                                                                                                                                                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"config": {}, "metadata": {"refs": {}, "schemas": [{"type": "struct", "fields": [{"id": 1, "name": "id", "type": "long", "required": true}], "schema-id": 0}], "location": "file:///tmp/iceberg_warehouse/lt_page_ns/p006", "table-uuid": "<uuid>", "sort-orders": [{"fields": [], "order-id": 0}], "format-version": 2, "last-column-id": 1, "default-spec-id": 0, "last-updated-ms": <ts>, "partition-specs": [{"fields": [], "spec-id": 0}], "current-schema-id": 0, "last-partition-id": 999, "last-sequence-number": 0, "default-sort-order-id": 0}, "metadata-location": "file:///tmp/iceberg_warehouse/lt_page_ns/p006/metadata/00000-<uuid>.metadata.json"}
+(1 row)
+SELECT iceberg_catalog.create_table(
+    'lt_page_ns', 'p007',
+    '{"type":"struct","fields":[{"id":1,"name":"id","type":"long","required":true}]}'::jsonb
+);
+                                                                                                                                                                                                                                                                                                                                                               create_table                                                                                                                                                                                                                                                                                                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"config": {}, "metadata": {"refs": {}, "schemas": [{"type": "struct", "fields": [{"id": 1, "name": "id", "type": "long", "required": true}], "schema-id": 0}], "location": "file:///tmp/iceberg_warehouse/lt_page_ns/p007", "table-uuid": "<uuid>", "sort-orders": [{"fields": [], "order-id": 0}], "format-version": 2, "last-column-id": 1, "default-spec-id": 0, "last-updated-ms": <ts>, "partition-specs": [{"fields": [], "spec-id": 0}], "current-schema-id": 0, "last-partition-id": 999, "last-sequence-number": 0, "default-sort-order-id": 0}, "metadata-location": "file:///tmp/iceberg_warehouse/lt_page_ns/p007/metadata/00000-<uuid>.metadata.json"}
 (1 row)
 -- ============================================================================
 -- T1: 基础调用 — 返回 JSONB object，包含顶层 key
@@ -198,7 +216,7 @@ SELECT jsonb_array_length(
 SELECT
     jsonb_array_length(
         (iceberg_catalog.list_tables('lt_page_ns', 100))->'identifiers'
-    ) = 5 AS t7_all_count,
+    ) = 7 AS t7_all_count,
     ((iceberg_catalog.list_tables('lt_page_ns', 100))->>'next-page-token') IS NULL
     AS t7_no_next_token;
  t7_all_count | t7_no_next_token 
@@ -218,7 +236,7 @@ SELECT iceberg_catalog.list_tables('lt_ns', 1);
 SAVEPOINT sp_size0;
 SAVEPOINT
 SELECT iceberg_catalog.list_tables('lt_ns', 0);
-gsql:test/sql/list_tables.sql:149: ERROR:  p_page_size must be >= 1
+gsql:test/sql/list_tables.sql:159: ERROR:  p_page_size must be >= 1
 CONTEXT:  referenced column: list_tables
 ROLLBACK TO SAVEPOINT sp_size0;
 ROLLBACK
@@ -226,7 +244,7 @@ ROLLBACK
 SAVEPOINT sp_empty_ns;
 SAVEPOINT
 SELECT iceberg_catalog.list_tables('');
-gsql:test/sql/list_tables.sql:154: ERROR:  p_namespace is required and must not be empty
+gsql:test/sql/list_tables.sql:164: ERROR:  p_namespace is required and must not be empty
 CONTEXT:  referenced column: list_tables
 ROLLBACK TO SAVEPOINT sp_empty_ns;
 ROLLBACK
@@ -234,7 +252,7 @@ ROLLBACK
 SAVEPOINT sp_null_ns;
 SAVEPOINT
 SELECT iceberg_catalog.list_tables(NULL);
-gsql:test/sql/list_tables.sql:159: ERROR:  p_namespace is required and must not be empty
+gsql:test/sql/list_tables.sql:169: ERROR:  p_namespace is required and must not be empty
 CONTEXT:  referenced column: list_tables
 ROLLBACK TO SAVEPOINT sp_null_ns;
 ROLLBACK
@@ -244,7 +262,7 @@ ROLLBACK
 SAVEPOINT sp_missing_ns;
 SAVEPOINT
 SELECT iceberg_catalog.list_tables('nonexistent_ns');
-gsql:test/sql/list_tables.sql:167: ERROR:  list tables: namespace "nonexistent_ns" does not exist
+gsql:test/sql/list_tables.sql:177: ERROR:  list tables: namespace "nonexistent_ns" does not exist
 CONTEXT:  referenced column: list_tables
 ROLLBACK TO SAVEPOINT sp_missing_ns;
 ROLLBACK
@@ -254,10 +272,20 @@ ROLLBACK
 SAVEPOINT sp_bad_token;
 SAVEPOINT
 SELECT iceberg_catalog.list_tables('lt_ns', 10, 'not-a-valid-base64-token!!!');
-gsql:test/sql/list_tables.sql:175: ERROR:  list tables: page_token is not a valid base64-encoded string
+gsql:test/sql/list_tables.sql:185: ERROR:  list tables: page_token is not a valid base64-encoded string
 CONTEXT:  referenced column: list_tables
 ROLLBACK TO SAVEPOINT sp_bad_token;
 ROLLBACK
+-- ============================================================================
+-- T11: 验证带 '=' 填充的 page_token (b64_decode buffer overflow fix)
+-- p006/p007 的 name 长度为 4 字节 → "last" 为 4 字节 → base64 有 '=' 填充
+-- 之前触发 PANIC: detected write past chunk end in ExprContext
+-- ============================================================================
+SELECT (iceberg_catalog.list_tables('lt_page_ns', 2)->>'next-page-token') LIKE '%=' AS t11_token_has_padding;
+ t11_token_has_padding 
+-----------------------
+ t
+(1 row)
 -- Cleanup
 DROP TABLE IF EXISTS _lt_page_token;
 DROP TABLE

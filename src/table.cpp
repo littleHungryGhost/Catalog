@@ -888,7 +888,7 @@ iceberg_commit_table(PG_FUNCTION_ARGS)
 
     PG_TRY();
     {
-        updates_str = jsonb_to_cstring(p_updates);
+        updates_str = iceberg_jsonb_to_cstring(p_updates);
 
         status = iceberg_bridge_table_commit(
             storage, info->metadata_location, updates_str,
