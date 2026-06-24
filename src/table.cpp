@@ -24,15 +24,10 @@
 #include "errors.h"
 #include "iceberg_catalog.h"
 #include "iceberg_catalog_hook.h"
+#include "json_util.h"
 #include "metadata.h"
 #include "table.h"
 
-
-static char *
-jsonb_to_cstring(Jsonb *value)
-{
-    return DatumGetCString(DirectFunctionCall1(jsonb_out, PointerGetDatum(value)));
-}
 
 static int
 temporary_last_column_id(const char *schema_json)
@@ -202,7 +197,7 @@ iceberg_create_table(PG_FUNCTION_ARGS)
         IcebergBridgeError   *error   = NULL;
         IcebergBridgeStatus   status;
 
-        char *schema_json = jsonb_to_cstring(p_schema);
+        char *schema_json = iceberg_jsonb_to_cstring(p_schema);
 
         /* 6.1 Determine table location.
          * TODO: explicit p_location > namespace LOCATION > ICEBERG_WAREHOUSE */
@@ -335,7 +330,7 @@ iceberg_create_table(PG_FUNCTION_ARGS)
                          errmsg("create table: foreign table creation failed, no valid relid")));
 
             char *partition_fields_json = p_partition_spec == NULL
-                ? NULL : jsonb_to_cstring(p_partition_spec);
+                ? NULL : iceberg_jsonb_to_cstring(p_partition_spec);
             MetaRegisterTableInput meta_input;
 
             memset(&meta_input, 0, sizeof(meta_input));
