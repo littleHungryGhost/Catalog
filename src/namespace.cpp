@@ -3,8 +3,8 @@
  * namespace.cpp
  *    Iceberg namespace SQL function implementations.
  *
- * META operations are marked as TODO, pending the underlying modules
- * to be wired up. Currently returns a minimal response.
+ * Namespace operations use the metadata module for catalog state and
+ * local DDL helpers for the backing openGauss schemas.
  *
  *-------------------------------------------------------------------------
  */
@@ -423,39 +423,19 @@ iceberg_drop_namespace(PG_FUNCTION_ARGS)
                 (errcode(ERRCODE_ICEBERG_INVALID_PARAM),
                  errmsg("namespace must not be empty")));
 
-    /* 3. Check namespace exists */
-    bool ns_exists = false;
-
+    /* 3. Drop namespace metadata */
     PG_TRY();
     {
-        ns_exists = iceberg_meta_namespace_exists(p_namespace);
+        iceberg_meta_drop_namespace(p_namespace);
     }
     PG_CATCH();
     {
         ErrorData *edata = CopyErrorData();
-        iceberg_err_rethrow_metadata(edata, "drop namespace existence check");
+        iceberg_err_rethrow_metadata(edata, "drop namespace metadata");
     }
     PG_END_TRY();
 
-    if (!ns_exists)
-        ereport(ERROR,
-                (errcode(ERRCODE_ICEBERG_NOT_FOUND),
-                 errmsg("The given namespace does not exist")));
-
-    /* 4. TODO: META Check namespace has no tables
-     *
-     * if (iceberg_meta_namespace_has_tables(p_namespace))
-     *     ereport(ERROR,
-     *             (errcode(ERRCODE_ICEBERG_CONFLICT),
-     *              errmsg("Cannot drop namespace: tables still exist")));
-     */
-
-    /* 5. TODO: META DeleteNamespace
-     *
-     * iceberg_meta_delete_namespace(p_namespace);
-     */
-
-    /* 6. Drop FDW schema for this namespace */
+    /* 4. Drop FDW schema for this namespace */
     PG_TRY();
     {
         ddl_drop_schema(p_namespace);
@@ -467,8 +447,6 @@ iceberg_drop_namespace(PG_FUNCTION_ARGS)
     }
     PG_END_TRY();
 
-    /* 7. Stub: return success.
-     * TODO: Replace with META steps above once META module is available. */
     PG_RETURN_DATUM(DirectFunctionCall1(jsonb_in,
         CStringGetDatum("{\"success\": true}")));
 }
@@ -504,25 +482,41 @@ iceberg_load_namespace(PG_FUNCTION_ARGS)
                 (errcode(ERRCODE_ICEBERG_INVALID_PARAM),
                  errmsg("namespace must not be empty")));
 
-    /* 3. TODO: META GetNamespace
-     *
-     * NamespaceInfo meta_info = iceberg_meta_get_namespace(p_namespace);
-     * if (meta_info == NULL)
-     *     ereport(ERROR,
-     *             (errcode(ERRCODE_ICEBERG_NOT_FOUND),
-     *              errmsg("The given namespace does not exist")));
-     * StringInfo buf = makeStringInfo();
-     * appendStringInfo(buf,
-     *     "{\"namespace\":[\"%s\"],\"properties\":%s}",
-     *     meta_info.namespace_name,
-     *     meta_info.properties);
-     * PG_RETURN_JSONB_P(jsonb_parse(buf->data));
-     */
+    /* 3. Load namespace metadata */
+    MetaNamespaceInfo *meta_info = NULL;
 
-    /* 4. Stub: return minimal response.
-     * TODO: Replace with META.GetNamespace() result once META module is available. */
-    PG_RETURN_DATUM(DirectFunctionCall1(jsonb_in,
-        CStringGetDatum("{\"namespace\":[\"TODO\"],\"properties\":{}}")));
+    PG_TRY();
+    {
+        meta_info = iceberg_meta_get_namespace(p_namespace);
+    }
+    PG_CATCH();
+    {
+        ErrorData *edata = CopyErrorData();
+        iceberg_err_rethrow_metadata(edata, "load namespace metadata");
+    }
+    PG_END_TRY();
+
+    if (meta_info == NULL)
+        ereport(ERROR,
+                (errcode(ERRCODE_ICEBERG_NOT_FOUND),
+                 errmsg("The given namespace does not exist")));
+
+    {
+        StringInfoData buf;
+        Datum result_datum;
+
+        initStringInfo(&buf);
+        appendStringInfo(&buf,
+            "{\"namespace\":[\"%s\"],\"properties\":%s}",
+            meta_info->namespace_name,
+            meta_info->properties_json);
+        result_datum = DirectFunctionCall1(jsonb_in,
+            CStringGetDatum(buf.data));
+
+        iceberg_meta_free_namespace_info(meta_info);
+        pfree(buf.data);
+        PG_RETURN_DATUM(result_datum);
+    }
 }
 
 

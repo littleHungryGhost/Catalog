@@ -46,6 +46,14 @@ typedef struct MetaTableInfo {
 } MetaTableInfo;
 
 /*
+ * MetaNamespaceInfo -- fields that map to columns in iceberg_catalog.namespaces.
+ */
+typedef struct MetaNamespaceInfo {
+    char   *namespace_name;                /* Iceberg namespace */
+    char   *properties_json;               /* namespace properties as JSON text */
+} MetaNamespaceInfo;
+
+/*
  * MetaRegisterTableInput -- aggregate input for iceberg_meta_register_table().
  *
  * Combines the table head record (MetaTableInfo) with the schema and
@@ -64,6 +72,18 @@ typedef struct MetaRegisterTableInput {
  * Returns true if a row with matching catalog_name and namespace is found.
  */
 bool iceberg_meta_namespace_exists(const char *namespace_name);
+
+/*
+ * Read namespace metadata from the local catalog.
+ * Returns NULL when the namespace does not exist.
+ */
+MetaNamespaceInfo *iceberg_meta_get_namespace(const char *namespace_name);
+
+/*
+ * Check whether an internal table exists in the given namespace.
+ * Internal function; does not manage SPI.
+ */
+bool iceberg_meta_namespace_has_tables(const char *namespace_name);
 
 /*
  * List namespaces with last-key cursor pagination.
@@ -153,6 +173,12 @@ void iceberg_meta_rename_table_record(const char *src_ns, const char *src_table,
 void iceberg_meta_free_table_info(MetaTableInfo *info);
 
 /*
+ * Free a MetaNamespaceInfo structure and all of its palloc'd string members.
+ * Safe to call with NULL (no-op).
+ */
+void iceberg_meta_free_namespace_info(MetaNamespaceInfo *info);
+
+/*
  * Create a namespace in the local catalog.
  *
  * Validates the namespace name and properties JSON, then inserts a row
@@ -161,6 +187,14 @@ void iceberg_meta_free_table_info(MetaTableInfo *info);
  */
 void iceberg_meta_create_namespace(const char *namespace_name,
                                     const char *properties_json);
+
+/*
+ * Drop an empty namespace from the local catalog.
+ *
+ * Locks the namespace row FOR UPDATE, rejects non-empty namespaces, and deletes
+ * the namespace metadata row.
+ */
+void iceberg_meta_drop_namespace(const char *namespace_name);
 
 /*
  * MetaCommitTableInput -- input for iceberg_meta_commit_table().

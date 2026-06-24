@@ -197,6 +197,23 @@ copy_table_info_from_tuple(HeapTuple tuple, TupleDesc tupdesc, MemoryContext tar
     return info;
 }
 
+static MetaNamespaceInfo *
+copy_namespace_info_from_tuple(HeapTuple tuple, TupleDesc tupdesc, MemoryContext target_context)
+{
+    MetaNamespaceInfo *info;
+    MemoryContext old_context;
+
+    old_context = MemoryContextSwitchTo(target_context);
+
+    info = (MetaNamespaceInfo *) palloc0(sizeof(MetaNamespaceInfo));
+    info->namespace_name = SPI_getvalue(tuple, tupdesc, 1);
+    info->properties_json = SPI_getvalue(tuple, tupdesc, 2);
+
+    MemoryContextSwitchTo(old_context);
+
+    return info;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Namespace operations                                               */
 /* ------------------------------------------------------------------ */
@@ -241,6 +258,86 @@ iceberg_meta_namespace_exists(const char *namespace_name)
     PG_END_TRY();
 
     return exists;
+}
+
+/*
+ * Read namespace metadata from iceberg_catalog.namespaces.
+ * Returns NULL if no matching namespace exists.
+ */
+MetaNamespaceInfo *
+iceberg_meta_get_namespace(const char *namespace_name)
+{
+    Datum values[1];
+    Oid argtypes[1] = {TEXTOID};
+    MetaNamespaceInfo *info = NULL;
+    MemoryContext caller_context = CurrentMemoryContext;
+    bool spi_connected = false;
+    int rc;
+
+    validate_name(namespace_name, "namespace_name");
+
+    values[0] = CStringGetTextDatum(namespace_name);
+
+    PG_TRY();
+    {
+        connect_spi();
+        spi_connected = true;
+        rc = ICEBERG_SPI_EXECUTE_WITH_ARGS(
+            "SELECT namespace, properties::text "
+            "FROM iceberg_catalog.namespaces "
+            "WHERE catalog_name = current_database()::text "
+            "  AND namespace = $1",
+            1,
+            argtypes,
+            values,
+            NULL,
+            true,
+            1);
+        if (rc != SPI_OK_SELECT)
+            ereport(ERROR,
+                    (errcode(ERRCODE_INTERNAL_ERROR),
+                     errmsg("metadata get namespace query failed")));
+
+        if (SPI_processed > 0)
+            info = copy_namespace_info_from_tuple(SPI_tuptable->vals[0],
+                                                  SPI_tuptable->tupdesc,
+                                                  caller_context);
+
+        finish_spi();
+        spi_connected = false;
+    }
+    PG_CATCH();
+    {
+        ErrorData *edata = CopyErrorData();
+        finish_spi_quietly(&spi_connected);
+        throw_translated_spi_error(edata, "metadata get namespace query");
+    }
+    PG_END_TRY();
+
+    return info;
+}
+
+/*
+ * Check whether a namespace has internal tables.
+ * Internal function; assumes SPI is already connected.
+ */
+bool
+iceberg_meta_namespace_has_tables(const char *namespace_name)
+{
+    Datum values[1];
+    Oid argtypes[1] = {TEXTOID};
+
+    validate_name(namespace_name, "namespace_name");
+
+    values[0] = CStringGetTextDatum(namespace_name);
+
+    return execute_exists_query(
+        "SELECT 1 "
+        "FROM iceberg_catalog.tables_internal "
+        "WHERE namespace = $1 "
+        "LIMIT 1",
+        values,
+        argtypes);
 }
 
 /*
@@ -1193,6 +1290,22 @@ iceberg_meta_free_table_info(MetaTableInfo *info)
     pfree(info);
 }
 
+/*
+ * Free a MetaNamespaceInfo and all its palloc'd members.
+ */
+void
+iceberg_meta_free_namespace_info(MetaNamespaceInfo *info)
+{
+    if (info == NULL)
+        return;
+
+    if (info->namespace_name != NULL)
+        pfree(info->namespace_name);
+    if (info->properties_json != NULL)
+        pfree(info->properties_json);
+    pfree(info);
+}
+
 /* ------------------------------------------------------------------ */
 /*  Namespace creation                                                 */
 /* ------------------------------------------------------------------ */
@@ -1275,6 +1388,94 @@ iceberg_meta_create_namespace(const char *namespace_name,
         ErrorData *edata = CopyErrorData();
         finish_spi_quietly(&spi_connected);
         throw_translated_spi_error(edata, "metadata create namespace");
+    }
+    PG_END_TRY();
+}
+
+/* ------------------------------------------------------------------ */
+/*  Namespace deletion                                                 */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Delete a namespace row from namespaces (no SPI management).
+ */
+static void
+iceberg_meta_delete_namespace(const char *namespace_name)
+{
+    Datum values[1];
+    Oid argtypes[1] = {TEXTOID};
+    int rc;
+
+    validate_name(namespace_name, "namespace_name");
+
+    values[0] = CStringGetTextDatum(namespace_name);
+
+    rc = ICEBERG_SPI_EXECUTE_WITH_ARGS(
+        "DELETE FROM iceberg_catalog.namespaces "
+        "WHERE catalog_name = current_database()::text "
+        "  AND namespace = $1",
+        1, argtypes, values, NULL, false, 0);
+    if (rc != SPI_OK_DELETE)
+        ereport(ERROR,
+                (errcode(ERRCODE_INTERNAL_ERROR),
+                 errmsg("failed to delete namespace metadata")));
+    if (SPI_processed == 0)
+        ereport(ERROR,
+                (errcode(ERRCODE_UNDEFINED_OBJECT),
+                 errmsg("namespace \"%s\" does not exist", namespace_name)));
+}
+
+/*
+ * Drop an empty namespace from the local catalog.
+ */
+void
+iceberg_meta_drop_namespace(const char *namespace_name)
+{
+    Datum values[1];
+    Oid argtypes[1] = {TEXTOID};
+    bool spi_connected = false;
+    int rc;
+
+    validate_name(namespace_name, "namespace_name");
+
+    values[0] = CStringGetTextDatum(namespace_name);
+
+    PG_TRY();
+    {
+        connect_spi();
+        spi_connected = true;
+
+        rc = ICEBERG_SPI_EXECUTE_WITH_ARGS(
+            "SELECT 1 "
+            "FROM iceberg_catalog.namespaces "
+            "WHERE catalog_name = current_database()::text "
+            "  AND namespace = $1 "
+            "FOR UPDATE",
+            1, argtypes, values, NULL, false, 1);
+        if (rc != SPI_OK_SELECT)
+            ereport(ERROR,
+                    (errcode(ERRCODE_INTERNAL_ERROR),
+                     errmsg("failed to lock namespace metadata")));
+        if (SPI_processed == 0)
+            ereport(ERROR,
+                    (errcode(ERRCODE_UNDEFINED_OBJECT),
+                     errmsg("namespace \"%s\" does not exist", namespace_name)));
+
+        if (iceberg_meta_namespace_has_tables(namespace_name))
+            ereport(ERROR,
+                    (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+                     errmsg("namespace is not empty")));
+
+        iceberg_meta_delete_namespace(namespace_name);
+
+        finish_spi();
+        spi_connected = false;
+    }
+    PG_CATCH();
+    {
+        ErrorData *edata = CopyErrorData();
+        finish_spi_quietly(&spi_connected);
+        throw_translated_spi_error(edata, "metadata drop namespace");
     }
     PG_END_TRY();
 }
