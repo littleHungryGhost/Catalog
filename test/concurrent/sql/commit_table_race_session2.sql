@@ -1,0 +1,8 @@
+BEGIN;
+SELECT iceberg_catalog.commit_table(
+    'commit_ns',
+    'commit_tbl',
+    '[{"type":"assert-ref-snapshot-id","ref":"main","snapshot-id":0}]'::JSONB,
+    '[{"action":"add-snapshot","snapshot":{"snapshot-id":1,"timestamp-ms":1710000000001,"manifest-list":"s3://bucket/tbl/metadata/snap-1.avro"}}]'::JSONB
+);
+COMMIT;
