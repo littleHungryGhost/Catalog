@@ -105,27 +105,38 @@ find_or_create_iceberg_fdw_server(void)
 
     /* None found — create a default one via SPI */
     {
-        const char *warehouse = getenv("ICEBERG_WAREHOUSE");
-
-        if (warehouse == NULL || warehouse[0] == '\0')
-            warehouse = "file:///tmp/iceberg_warehouse";
+        bool spi_connected = false;
 
         connect_spi();
+        spi_connected = true;
 
         PG_TRY();
         {
+            const char *warehouse = getenv("ICEBERG_WAREHOUSE");
+
+            if (warehouse == NULL || warehouse[0] == '\0')
+                warehouse = "file:///tmp/iceberg_warehouse";
+
             char *escaped = quote_literal_cstr(warehouse);
             char *sql = psprintf(
                 "CREATE SERVER \"%s\" FOREIGN DATA WRAPPER iceberg_fdw "
                 "OPTIONS (warehouse %s)",
                 ICEBERG_DEFAULT_SERVER_NAME, escaped);
             pfree(escaped);
-            SPI_execute(sql, false, 0);
+
+            int rc = SPI_execute(sql, false, 0);
+            if (rc != SPI_OK_UTILITY)
+                ereport(ERROR,
+                        (errcode(ERRCODE_INTERNAL_ERROR),
+                         errmsg("failed to create iceberg_fdw server")));
+
+            pfree(sql);
             finish_spi();
+            spi_connected = false;
         }
         PG_CATCH();
         {
-            finish_spi();
+            finish_spi_quietly(&spi_connected);
             PG_RE_THROW();
         }
         PG_END_TRY();

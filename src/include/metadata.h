@@ -21,6 +21,7 @@
  */
 void connect_spi(void);
 void finish_spi(void);
+void finish_spi_quietly(bool *spi_connected);
 
 /*
  * MetaTableInfo -- fields that map to columns in iceberg_catalog.tables_internal.
