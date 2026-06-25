@@ -37,8 +37,8 @@ SELECT (iceberg_catalog.drop_namespace('ns_success_val') ->> 'success')::BOOLEAN
 (1 row)
 -- 3. Drops metadata row
 SELECT iceberg_catalog.create_namespace('temp_ns', '{"owner": "test"}'::JSONB);
-                   create_namespace                    
--------------------------------------------------------
+                      create_namespace                       
+-------------------------------------------------------------
  {"namespace": ["temp_ns"], "properties": {"owner": "test"}}
 (1 row)
 SELECT iceberg_catalog.drop_namespace('temp_ns');
@@ -121,7 +121,7 @@ INSERT INTO iceberg_catalog.tables_internal(
     last_column_id, current_schema_id, current_snapshot_id, default_spec_id
 ) VALUES (
     'pg_class'::regclass, 'ns_with_tables', 'some_table',
-    '11111111-1111-1111-1111-111111111111'::uuid,
+    '<uuid>'::uuid,
     'file:///tmp/metadata.json', NULL, 'file:///tmp/table',
     1, 0, NULL, 0
 );

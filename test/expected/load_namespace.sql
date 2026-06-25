@@ -93,8 +93,8 @@ SELECT iceberg_catalog.load_namespace('ns-with-dash') -> 'namespace' ->> 0 AS da
  ns-with-dash
 (1 row)
 SELECT iceberg_catalog.load_namespace('ns_with_underscore') -> 'namespace' ->> 0 AS underscore_name;
-  underscore_name  
--------------------
+  underscore_name   
+--------------------
  ns_with_underscore
 (1 row)
 SELECT iceberg_catalog.load_namespace('NS123MixedCase') -> 'namespace' ->> 0 AS mixed_case_name;

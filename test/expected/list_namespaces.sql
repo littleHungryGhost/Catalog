@@ -39,28 +39,28 @@ SELECT iceberg_catalog.list_namespaces() -> 'next-page-token' AS next_token;
 -- ============================================================================
 -- 5. 指定 p_parent = NULL（列出顶层 namespace，默认行为）
 SELECT iceberg_catalog.list_namespaces(p_parent => NULL);
-              list_namespaces
--------------------------------------------
+               list_namespaces               
+---------------------------------------------
  {"namespaces": [], "next-page-token": null}
 (1 row)
 -- 6. 指定 p_page_size
 SELECT iceberg_catalog.list_namespaces(p_page_size => 50);
-              list_namespaces
--------------------------------------------
+               list_namespaces               
+---------------------------------------------
  {"namespaces": [], "next-page-token": null}
 (1 row)
 -- 7. 使用位置参数
 SELECT iceberg_catalog.list_namespaces(NULL, 100, NULL);
-              list_namespaces
--------------------------------------------
+               list_namespaces               
+---------------------------------------------
  {"namespaces": [], "next-page-token": null}
 (1 row)
 -- 8. 指定 p_page_token（分页）
 SELECT iceberg_catalog.list_namespaces(
     p_page_token => 'eyJ2IjoxLCJ0eXBlIjoibmFtZXNwYWNlIiwibGFzdCI6ImFjY291bnRpbmcifQ=='
 );
-              list_namespaces
--------------------------------------------
+               list_namespaces               
+---------------------------------------------
  {"namespaces": [], "next-page-token": null}
 (1 row)
 -- 9. 全部参数使用命名传参
@@ -72,8 +72,8 @@ SELECT iceberg_catalog.list_namespaces(
     p_page_size  => 20,
     p_page_token => NULL
 );
-              list_namespaces
--------------------------------------------
+               list_namespaces               
+---------------------------------------------
  {"namespaces": [], "next-page-token": null}
 (1 row)
 -- ============================================================================
@@ -112,14 +112,14 @@ ROLLBACK
 -- 13. p_page_size 为大值
 SELECT iceberg_catalog.list_namespaces(p_page_size => 1000000) @>
        '{"namespaces":[["accounting"]]}'::JSONB AS contains_accounting;
- contains_accounting
+ contains_accounting 
 ---------------------
  t
 (1 row)
 -- 14. p_page_size = 1（最小值合法）
 SELECT iceberg_catalog.list_namespaces(p_page_size => 1) -> 'namespaces' =
        '[["accounting"]]'::JSONB AS first_page_is_accounting;
- first_page_is_accounting
+ first_page_is_accounting 
 --------------------------
  t
 (1 row)
@@ -132,7 +132,7 @@ VALUES (current_database(), 'dept_b', '{"owner": "alice"}'::JSONB);
 INSERT 0 1
 SELECT iceberg_catalog.list_namespaces() @>
        '{"namespaces":[["accounting"],["dept_a"],["dept_b"]]}'::JSONB AS contains_inserted_namespaces;
- contains_inserted_namespaces
+ contains_inserted_namespaces 
 ------------------------------
  t
 (1 row)
@@ -143,7 +143,7 @@ SELECT
     jsonb_array_length(result -> 'namespaces') AS namespace_count,
     jsonb_typeof(result -> 'next-page-token') AS next_token_type
 FROM first_page;
- namespace_count | next_token_type
+ namespace_count | next_token_type 
 -----------------+-----------------
                2 | string
 (1 row)
@@ -156,7 +156,7 @@ SELECT iceberg_catalog.list_namespaces(
     result ->> 'next-page-token'
 ) @> '{"namespaces":[["dept_b"]]}'::JSONB AS second_page_contains_dept_b
 FROM first_page;
- second_page_contains_dept_b
+ second_page_contains_dept_b 
 -----------------------------
  t
 (1 row)

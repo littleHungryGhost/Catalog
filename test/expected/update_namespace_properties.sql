@@ -108,7 +108,7 @@ SELECT iceberg_catalog.update_namespace_properties(
     '',
     p_updates => '{"key": "val"}'::JSONB
 );
-gsql:test/sql/update_namespace_properties.sql:86: ERROR:  namespace must not be empty
+gsql:test/sql/update_namespace_properties.sql:89: ERROR:  namespace must not be empty
 CONTEXT:  referenced column: update_namespace_properties
 ROLLBACK TO SAVEPOINT sp6;
 ROLLBACK
@@ -119,7 +119,7 @@ SELECT iceberg_catalog.update_namespace_properties(
     NULL::TEXT,
     p_updates => '{"key": "val"}'::JSONB
 );
-gsql:test/sql/update_namespace_properties.sql:94: ERROR:  namespace must not be empty
+gsql:test/sql/update_namespace_properties.sql:97: ERROR:  namespace must not be empty
 CONTEXT:  referenced column: update_namespace_properties
 ROLLBACK TO SAVEPOINT sp7;
 ROLLBACK
@@ -141,7 +141,7 @@ SELECT iceberg_catalog.update_namespace_properties(
     'ns',
     p_removals => '"not_an_array"'::JSONB
 );
-gsql:test/sql/update_namespace_properties.sql:111: ERROR:  p_removals must be a JSONB array
+gsql:test/sql/update_namespace_properties.sql:114: ERROR:  p_removals must be a JSONB array
 CONTEXT:  referenced column: update_namespace_properties
 ROLLBACK TO SAVEPOINT sp9;
 ROLLBACK
@@ -152,7 +152,7 @@ SELECT iceberg_catalog.update_namespace_properties(
     'ns',
     p_updates => '"not_an_object"'::JSONB
 );
-gsql:test/sql/update_namespace_properties.sql:119: ERROR:  p_updates must be a JSONB object
+gsql:test/sql/update_namespace_properties.sql:122: ERROR:  p_updates must be a JSONB object
 CONTEXT:  referenced column: update_namespace_properties
 ROLLBACK TO SAVEPOINT sp10;
 ROLLBACK
@@ -164,7 +164,7 @@ SELECT iceberg_catalog.update_namespace_properties(
     p_removals => '["same_key"]'::JSONB,
     p_updates  => '{"same_key": "val"}'::JSONB
 );
-gsql:test/sql/update_namespace_properties.sql:127: ERROR:  removals and updates must not contain overlapping keys
+gsql:test/sql/update_namespace_properties.sql:131: ERROR:  removals and updates must not contain overlapping keys
 CONTEXT:  referenced column: update_namespace_properties
 ROLLBACK TO SAVEPOINT sp11;
 ROLLBACK
