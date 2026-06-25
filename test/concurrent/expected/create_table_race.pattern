@@ -1,0 +1,11 @@
+# create_table_race expected patterns
+# At least one session succeeded and returned table metadata
++ .*"metadata-location".*
+# The losing session raised an error (foreign table/SPI conflict)
++ .*ERROR:.*
+# No internal errors
+! .*P0009.*
+# No connection failures / crashes
+! .*server closed.*
+! .*connection lost.*
+! .*Connection refused.*

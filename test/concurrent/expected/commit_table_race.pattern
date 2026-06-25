@@ -1,0 +1,9 @@
+# commit_table_race expected patterns
+# At least one session succeeded
++ .*"metadata-location".*
+# No internal errors
+! .*P0009.*
+# No connection failures / crashes
+! .*server closed.*
+! .*connection lost.*
+! .*Connection refused.*

@@ -1,0 +1,11 @@
+# read_while_ddl expected patterns
+# Reader saw the table at least once
++ .*"metadata-location".*
+# DDL add_column succeeded
++ .*add_column.*
+# No internal errors
+! .*P0009.*
+# No connection failures / crashes
+! .*server closed.*
+! .*connection lost.*
+! .*Connection refused.*

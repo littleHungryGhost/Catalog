@@ -23,4 +23,9 @@ override CPPFLAGS := $(filter-out -fPIE,$(CPPFLAGS))
 test:
 	bash test/run_tests.sh
 
-.PHONY: test
+test-concurrent:
+	bash test/run_concurrency_tests.sh
+
+test-all: test test-concurrent
+
+.PHONY: test test-concurrent test-all

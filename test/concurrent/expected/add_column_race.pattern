@@ -1,0 +1,11 @@
+# add_column_race expected patterns
+# Both sessions should succeed (FOR UPDATE serializes them)
++ .*"metadata-location".*
+# No errors at all
+! .*ERROR:.*
+# No internal errors
+! .*P0009.*
+# No connection failures / crashes
+! .*server closed.*
+! .*connection lost.*
+! .*Connection refused.*

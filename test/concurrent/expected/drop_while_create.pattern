@@ -1,0 +1,9 @@
+# drop_while_create expected patterns
+# At least one operation succeeded (drop returns "success", create returns "metadata-location")
++ .*("success"|"metadata-location").*
+# No internal errors
+! .*P0009.*
+# No connection failures / crashes
+! .*server closed.*
+! .*connection lost.*
+! .*Connection refused.*
