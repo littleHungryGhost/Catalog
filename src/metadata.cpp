@@ -492,12 +492,12 @@ iceberg_meta_update_namespace_properties(const char *namespace_name,
         values[2] = CStringGetTextDatum(updates);
         rc = ICEBERG_SPI_EXECUTE_WITH_ARGS(
             "SELECT "
-            "    COALESCE((SELECT jsonb_agg(key ORDER BY key) "
+            "    COALESCE((SELECT json_agg(key ORDER BY key)::jsonb "
             "              FROM jsonb_each($3::jsonb)), '[]'::jsonb)::text, "
-            "    COALESCE((SELECT jsonb_agg(key ORDER BY key) "
+            "    COALESCE((SELECT json_agg(key ORDER BY key)::jsonb "
             "              FROM jsonb_array_elements_text($2::jsonb) AS r(key) "
             "              WHERE $1::jsonb ? key), '[]'::jsonb)::text, "
-            "    COALESCE((SELECT jsonb_agg(key ORDER BY key) "
+            "    COALESCE((SELECT json_agg(key ORDER BY key)::jsonb "
             "              FROM jsonb_array_elements_text($2::jsonb) AS r(key) "
             "              WHERE NOT ($1::jsonb ? key)), '[]'::jsonb)::text",
             3, argtypes, values, NULL, true, 1);
