@@ -84,7 +84,7 @@ is_metadata_sqlstate(int sqlerrcode)
            sqlerrcode == ERRCODE_INTERNAL_ERROR;
 }
 
-static void
+void
 finish_spi_quietly(bool *spi_connected)
 {
     if (spi_connected != NULL && *spi_connected) {
