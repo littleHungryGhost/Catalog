@@ -7,13 +7,53 @@
 BEGIN;
 
 INSERT INTO iceberg_catalog.namespaces(catalog_name, namespace, properties)
-VALUES (current_database(), 'test_ns', '{}'::JSONB);
+VALUES (current_database(), 'test_ns', '{}'::JSONB),
+       (current_database(), 'ns', '{}'::JSONB);
 
 -- ============================================================================
--- 第一部分：正常场景 — 返回类型与结构校验
+-- 第一部分：参数校验 — 报错场景（先于 META 调用，不依赖 jsonb_agg）
 -- ============================================================================
 
--- 1. 仅使用 p_updates，返回合法 JSONB
+-- 1. p_namespace 为空字符串 → P0001
+SAVEPOINT sp1;
+SELECT iceberg_catalog.update_namespace_properties('', p_updates => '{"key":"val"}'::JSONB);
+ROLLBACK TO SAVEPOINT sp1;
+
+-- 2. p_namespace 为 NULL → P0001
+SAVEPOINT sp2;
+SELECT iceberg_catalog.update_namespace_properties(NULL::TEXT, p_updates => '{"key":"val"}'::JSONB);
+ROLLBACK TO SAVEPOINT sp2;
+
+-- 3. p_removals 和 p_updates 同时为 NULL → P0001
+SAVEPOINT sp3;
+SELECT iceberg_catalog.update_namespace_properties('ns');
+ROLLBACK TO SAVEPOINT sp3;
+
+-- 4. p_removals 不是 JSONB 数组 → P0001
+SAVEPOINT sp4;
+SELECT iceberg_catalog.update_namespace_properties('ns', p_removals => '"not_an_array"'::JSONB);
+ROLLBACK TO SAVEPOINT sp4;
+
+-- 5. p_removals 数组含非字符串元素 → P0001
+SAVEPOINT sp5;
+SELECT iceberg_catalog.update_namespace_properties('ns', p_removals => '[123, true]'::JSONB);
+ROLLBACK TO SAVEPOINT sp5;
+
+-- 6. p_updates 不是 JSONB object → P0001
+SAVEPOINT sp6;
+SELECT iceberg_catalog.update_namespace_properties('ns', p_updates => '"not_an_object"'::JSONB);
+ROLLBACK TO SAVEPOINT sp6;
+
+-- 7. removals ∩ updates ≠ ∅ → P0006
+SAVEPOINT sp7;
+SELECT iceberg_catalog.update_namespace_properties('ns', p_removals => '["same_key"]'::JSONB, p_updates => '{"same_key":"val"}'::JSONB);
+ROLLBACK TO SAVEPOINT sp7;
+
+-- ============================================================================
+-- 第二部分：正常场景 — 返回类型与结构校验
+-- ============================================================================
+
+-- 8. 仅使用 p_updates，返回合法 JSONB
 SELECT jsonb_typeof(iceberg_catalog.update_namespace_properties(
     'test_ns',
     p_updates => '{"owner": "alice"}'::JSONB
