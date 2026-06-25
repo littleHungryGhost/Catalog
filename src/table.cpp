@@ -310,22 +310,62 @@ iceberg_create_table(PG_FUNCTION_ARGS)
          * in section 7.2. */
         {
             /* Extract table metadata from SDK result. */
-            IcebergBridgeString *uuid_json        = NULL;
-            IcebergBridgeString *meta_json        = NULL;
-            IcebergBridgeString *md_json          = NULL;
+            IcebergBridgeString *uuid_json = NULL;
+            IcebergBridgeString *meta_json = NULL;
+            IcebergBridgeString *md_json   = NULL;
 
-            iceberg_bridge_table_uuid(table, &uuid_json, &error);
-            iceberg_bridge_table_metadata_json(table, &meta_json, &error);
-            iceberg_bridge_table_metadata_location(table, &md_json, &error);
+            /*
+             * The three accessors below can fail and write `error`.  A failed
+             * call may leave its out-pointer NULL, so iceberg_bridge_string_data
+             * must not be called on it, and any error written must be freed
+             * before we overwrite `error` with the next call.
+             */
+            if (iceberg_bridge_table_uuid(table, &uuid_json, &error) != ICEBERG_BRIDGE_OK ||
+                uuid_json == NULL) {
+                const char *msg = error ? pstrdup(iceberg_bridge_error_message(error)) : "extract table uuid failed";
+                iceberg_bridge_error_free(error);
+                iceberg_bridge_table_free(table);
+                ereport(ERROR,
+                        (errcode(ERRCODE_ICEBERG_INTERNAL_ERROR),
+                         errmsg("iceberg_create_table: %s", msg)));
+            }
+            if (iceberg_bridge_table_metadata_json(table, &meta_json, &error) != ICEBERG_BRIDGE_OK ||
+                meta_json == NULL) {
+                const char *msg = error ? pstrdup(iceberg_bridge_error_message(error)) : "extract table metadata failed";
+                iceberg_bridge_error_free(error);
+                iceberg_bridge_string_free(uuid_json);
+                iceberg_bridge_table_free(table);
+                ereport(ERROR,
+                        (errcode(ERRCODE_ICEBERG_INTERNAL_ERROR),
+                         errmsg("iceberg_create_table: %s", msg)));
+            }
+            if (iceberg_bridge_table_metadata_location(table, &md_json, &error) != ICEBERG_BRIDGE_OK ||
+                md_json == NULL) {
+                const char *msg = error ? pstrdup(iceberg_bridge_error_message(error)) : "extract table metadata location failed";
+                iceberg_bridge_error_free(error);
+                iceberg_bridge_string_free(meta_json);
+                iceberg_bridge_string_free(uuid_json);
+                iceberg_bridge_table_free(table);
+                ereport(ERROR,
+                        (errcode(ERRCODE_ICEBERG_INTERNAL_ERROR),
+                         errmsg("iceberg_create_table: %s", msg)));
+            }
 
             const char *table_uuid_str = iceberg_bridge_string_data(uuid_json);
             const char *meta_str       = iceberg_bridge_string_data(meta_json);
             char       *md_location    = pstrdup(iceberg_bridge_string_data(md_json));
 
-            if (!OidIsValid(ft_relid))
+            if (!OidIsValid(ft_relid)) {
+                /* Foreign-table creation failed earlier; release the SDK table
+                 * handle and its extracted strings before raising. */
+                iceberg_bridge_string_free(uuid_json);
+                iceberg_bridge_string_free(meta_json);
+                iceberg_bridge_string_free(md_json);
+                iceberg_bridge_table_free(table);
                 ereport(ERROR,
                         (errcode(ERRCODE_ICEBERG_INTERNAL_ERROR),
                          errmsg("create table: foreign table creation failed, no valid relid")));
+            }
 
             char *partition_fields_json = p_partition_spec == NULL
                 ? NULL : iceberg_jsonb_to_cstring(p_partition_spec);
@@ -539,7 +579,23 @@ iceberg_load_table(PG_FUNCTION_ARGS)
     /* 5. Extract metadata JSON from loaded table. */
 
     IcebergBridgeString *meta_str = NULL;
-    iceberg_bridge_table_metadata_json(table, &meta_str, &bridge_err);
+    {
+        IcebergBridgeStatus rc = iceberg_bridge_table_metadata_json(
+            table, &meta_str, &bridge_err);
+        if (rc != ICEBERG_BRIDGE_OK) {
+            const char *msg = bridge_err
+                ? pstrdup(iceberg_bridge_error_message(bridge_err))
+                : "load table metadata extract failed";
+            iceberg_bridge_error_free(bridge_err);
+            bridge_err = NULL;
+            iceberg_bridge_table_free(table);
+            iceberg_bridge_storage_release(storage);
+            iceberg_meta_free_table_info(info);
+            ereport(ERROR,
+                    (errcode(ERRCODE_ICEBERG_INTERNAL_ERROR),
+                     errmsg("iceberg_load_table: %s", msg)));
+        }
+    }
 
     const char *metadata_json = meta_str
         ? iceberg_bridge_string_data(meta_str) : "{}";
@@ -887,6 +943,7 @@ iceberg_commit_table(PG_FUNCTION_ARGS)
     IcebergBridgeStatus   status;
     char                  *updates_str = NULL;
     IcebergBridgeString   *out_location = NULL;
+    IcebergBridgeString   *meta_sdk    = NULL;
 
     MetaTableInfo *info = NULL;
 
@@ -949,18 +1006,20 @@ iceberg_commit_table(PG_FUNCTION_ARGS)
         }
         PG_CATCH();
         {
-            iceberg_meta_free_table_info(info);
-            iceberg_bridge_string_free(out_location);
+            /* out_location / storage are released by the outer PG_CATCH().
+             * Releasing out_location here and then ereport(ERROR) (inside
+             * iceberg_err_rethrow_metadata) would longjmp into the still-active
+             * outer handler, which frees out_location a second time. */
             ErrorData *edata = CopyErrorData();
             iceberg_err_rethrow_metadata(edata, "commit table metadata commit");
         }
         PG_END_TRY();
 
         iceberg_meta_free_table_info(info);
+        info = NULL;
 
         /* 8. Return response with real metadata from committed table. */
 
-        IcebergBridgeString *meta_sdk = NULL;
         {
             const char *levels[] = {p_namespace};
             IcebergBridgeNamespaceIdent ns = {levels, 1};
@@ -979,14 +1038,26 @@ iceberg_commit_table(PG_FUNCTION_ARGS)
             CStringGetDatum(psprintf("{\"metadata-location\": \"%s\", \"metadata\": %s, \"config\": {}}",
                                      meta_input.new_metadata_location, meta_txt)));
         iceberg_bridge_string_free(meta_sdk);
+        meta_sdk = NULL;
         iceberg_bridge_string_free(out_location);
+        out_location = NULL;
         iceberg_bridge_storage_release(storage);
+        storage = NULL;
         PG_RETURN_DATUM(result);
     }
     PG_CATCH();
     {
-        iceberg_bridge_string_free(out_location);
-        iceberg_bridge_storage_release(storage);
+        /* Single cleanup point for the whole SDK section. Every handle still
+         * set below is owned by this try-block; the inner PG_CATCH above
+         * deliberately leaves them set so they are freed exactly once here. */
+        if (info != NULL)
+            iceberg_meta_free_table_info(info);
+        if (meta_sdk != NULL)
+            iceberg_bridge_string_free(meta_sdk);
+        if (out_location != NULL)
+            iceberg_bridge_string_free(out_location);
+        if (storage != NULL)
+            iceberg_bridge_storage_release(storage);
         ErrorData *edata = CopyErrorData();
         iceberg_err_rethrow_metadata(edata, "commit table sdk");
     }
