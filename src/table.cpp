@@ -237,17 +237,28 @@ iceberg_create_table(PG_FUNCTION_ARGS)
 
         /* 7.1 Optional delta-table creation hook (plugin B).
          *
-         * Another extension can register a hook by calling the exported
-         * function register_iceberg_create_delta_table_hook().  If a hook
-         * is registered, we invoke it here so it can create an internal
-         * openGauss table with the same schema.  Errors from the hook are
-         * wrapped with a clear "Create delta table failed" message.
+         * The callback can be installed either through the exported
+         * register_iceberg_create_delta_table_hook() function (global hook
+         * pointer) or via the rendezvous callback slot published by
+         * iceberg_delta.  We check the rendezvous slot as a fallback because
+         * openGauss may load a fresh catalog library instance for the actual
+         * C-function call, and that instance's global hook pointer may not
+         * have been initialized even though the peer already published its
+         * callback.
          */
         {
-            if (create_delta_table_hook != NULL) {
+            iceberg_create_delta_table_hook_type create_hook = create_delta_table_hook;
+
+            if (create_hook == NULL) {
+                void **create_cb = find_rendezvous_variable(ICEBERG_CREATE_DELTA_TABLE_HOOK_CB);
+                if (create_cb != NULL && *create_cb != NULL)
+                    create_hook = (iceberg_create_delta_table_hook_type) *create_cb;
+            }
+
+            if (create_hook != NULL) {
                 PG_TRY();
                 {
-                    create_delta_table_hook(p_namespace, p_table_name, schema_json);
+                    create_hook(p_namespace, p_table_name, schema_json);
                 }
                 PG_CATCH();
                 {
@@ -727,17 +738,22 @@ iceberg_drop_table(PG_FUNCTION_ARGS)
 
     /* 4.1 Optional delta-table drop hook (plugin B).
      *
-     * Another extension can register a hook by calling the exported
-     * function register_iceberg_drop_delta_table_hook().  If a hook is
-     * registered, we invoke it here so it can drop the internal openGauss
-     * table that was created alongside this Iceberg table.  Errors from the
-     * hook are wrapped with a clear "Drop delta table failed" message.
+     * See create_table for the dual lookup: prefer the global hook pointer,
+     * fall back to the rendezvous callback slot published by iceberg_delta.
      */
     {
-        if (drop_delta_table_hook != NULL) {
+        iceberg_drop_delta_table_hook_type drop_hook = drop_delta_table_hook;
+
+        if (drop_hook == NULL) {
+            void **drop_cb = find_rendezvous_variable(ICEBERG_DROP_DELTA_TABLE_HOOK_CB);
+            if (drop_cb != NULL && *drop_cb != NULL)
+                drop_hook = (iceberg_drop_delta_table_hook_type) *drop_cb;
+        }
+
+        if (drop_hook != NULL) {
             PG_TRY();
             {
-                drop_delta_table_hook(p_namespace, p_table, p_purge);
+                drop_hook(p_namespace, p_table, p_purge);
             }
             PG_CATCH();
             {
