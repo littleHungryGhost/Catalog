@@ -3,13 +3,16 @@
  * iceberg_catalog_hook.h
  *    Public hook interface for the iceberg_catalog extension.
  *
- * Other extensions can register callbacks by calling the exported
- * registration functions declared below.  iceberg_catalog will invoke
- * the registered callbacks during CREATE TABLE and DROP TABLE processing.
+ * Other extensions can register callbacks by writing through the
+ * rendezvous variable slots declared below.  iceberg_catalog publishes
+ * the addresses of its hook pointers in _PG_init(); delta (or any other
+ * extension) reads them back via find_rendezvous_variable() and writes
+ * its callbacks directly.
  *
- * The legacy rendezvous variable mechanism has been removed; callers
- * should use register_iceberg_create_delta_table_hook() and
- * register_iceberg_drop_delta_table_hook() instead.
+ * This avoids the dlopen/dlsym approach which fails under openGauss
+ * single-node because the catalog .so is copied to a unique path before
+ * dlopen, so static symbols are not shared between the two library
+ * instances.
  *-------------------------------------------------------------------------
  */
 
@@ -19,6 +22,16 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* Rendezvous variable slot names used to publish hook pointer addresses. */
+#define ICEBERG_CREATE_DELTA_TABLE_HOOK_SLOT "iceberg_create_delta_table_hook_slot"
+#define ICEBERG_DROP_DELTA_TABLE_HOOK_SLOT   "iceberg_drop_delta_table_hook_slot"
+
+/* Rendezvous variable slot names used by another extension to publish its
+ * callback addresses.  iceberg_catalog reads these back in _PG_init() so that
+ * repeated library reloads do not lose the registered callback. */
+#define ICEBERG_CREATE_DELTA_TABLE_HOOK_CB   "iceberg_create_delta_table_hook_cb"
+#define ICEBERG_DROP_DELTA_TABLE_HOOK_CB     "iceberg_drop_delta_table_hook_cb"
 
 /*
  * Hook called during iceberg_catalog.create_table() after validation and
@@ -61,21 +74,9 @@ typedef void (*iceberg_drop_delta_table_hook_type)(
 );
 
 /*
- * Exported registration functions.
- *
- * The delta plugin discovers these symbols (for example via
- * dlsym(RTLD_DEFAULT, ...)) and calls them to register its callbacks.
- * Both extensions must be loaded in the same backend process.
- */
-PGDLLEXPORT void register_iceberg_create_delta_table_hook(
-    iceberg_create_delta_table_hook_type callback);
-PGDLLEXPORT void register_iceberg_drop_delta_table_hook(
-    iceberg_drop_delta_table_hook_type callback);
-
-/*
  * Internal callback storage, defined in iceberg_catalog.cpp and referenced
  * from table.cpp.  External code should not touch these directly; use the
- * registration functions above.
+ * rendezvous variable mechanism instead.
  */
 extern iceberg_create_delta_table_hook_type create_delta_table_hook;
 extern iceberg_drop_delta_table_hook_type   drop_delta_table_hook;

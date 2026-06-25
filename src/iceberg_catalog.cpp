@@ -24,38 +24,33 @@ iceberg_drop_delta_table_hook_type   drop_delta_table_hook   = NULL;
 }
 
 /*
- * register_iceberg_create_delta_table_hook
- *
- * Called by an external extension (e.g., the delta plugin) to register
- * a callback that will be invoked during iceberg_catalog.create_table().
- */
-extern "C" void
-register_iceberg_create_delta_table_hook(iceberg_create_delta_table_hook_type callback)
-{
-    create_delta_table_hook = callback;
-}
-
-/*
- * register_iceberg_drop_delta_table_hook
- *
- * Called by an external extension (e.g., the delta plugin) to register
- * a callback that will be invoked during iceberg_catalog.drop_table().
- */
-extern "C" void
-register_iceberg_drop_delta_table_hook(iceberg_drop_delta_table_hook_type callback)
-{
-    drop_delta_table_hook = callback;
-}
-
-/*
  * _PG_init
  *
- * Shared library entry point.  Hook registration is performed by external
- * extensions calling the PGDLLEXPORT registration functions above.
+ * Shared library entry point.  Publish the addresses of our hook pointers
+ * via the rendezvous variable mechanism so that other extensions (e.g.
+ * iceberg_delta) can write their callbacks directly.
  */
 extern "C" void
 _PG_init(void)
 {
+    /* Publish the addresses of our hook pointers so that another extension
+     * loaded as a separate pg_plugin instance can write callbacks directly
+     * into this backend's current catalog instance. */
+    void **create_slot = find_rendezvous_variable(ICEBERG_CREATE_DELTA_TABLE_HOOK_SLOT);
+    *create_slot = (void *) &create_delta_table_hook;
+
+    void **drop_slot = find_rendezvous_variable(ICEBERG_DROP_DELTA_TABLE_HOOK_SLOT);
+    *drop_slot = (void *) &drop_delta_table_hook;
+
+    /* If the peer extension loaded first, it published its callbacks in the
+     * CB rendezvous slots; adopt them now. */
+    void **create_cb = find_rendezvous_variable(ICEBERG_CREATE_DELTA_TABLE_HOOK_CB);
+    if (create_cb != NULL && *create_cb != NULL)
+        create_delta_table_hook = (iceberg_create_delta_table_hook_type) *create_cb;
+
+    void **drop_cb = find_rendezvous_variable(ICEBERG_DROP_DELTA_TABLE_HOOK_CB);
+    if (drop_cb != NULL && *drop_cb != NULL)
+        drop_delta_table_hook = (iceberg_drop_delta_table_hook_type) *drop_cb;
 }
 
 #define REQUIRE_ENV(name) \
