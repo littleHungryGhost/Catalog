@@ -27,6 +27,16 @@ SELECT iceberg_catalog.create_namespace('ns_props', '{}'::jsonb);
 -----------------------------------------------
  {"namespace": ["ns_props"], "properties": {}}
 (1 row)
+SELECT iceberg_catalog.create_namespace('ns_binary', '{}'::jsonb);
+                create_namespace                
+------------------------------------------------
+ {"namespace": ["ns_binary"], "properties": {}}
+(1 row)
+SELECT iceberg_catalog.create_namespace('ns_fixed', '{}'::jsonb);
+               create_namespace                
+-----------------------------------------------
+ {"namespace": ["ns_fixed"], "properties": {}}
+(1 row)
 -- 1. 基础调用：仅填 3 个必填参数，返回合法 JSONB
 SELECT jsonb_typeof(iceberg_catalog.create_table(
     'test_ns',
@@ -137,7 +147,7 @@ SELECT iceberg_catalog.create_table(
 SAVEPOINT sp5;
 SAVEPOINT
 SELECT iceberg_catalog.create_table('', 'tbl', '{"type":"struct","fields":[]}'::JSONB);
-gsql:test/sql/create_table.sql:100: ERROR:  p_namespace is required and must not be empty
+gsql:test/sql/create_table.sql:102: ERROR:  p_namespace is required and must not be empty
 CONTEXT:  referenced column: create_table
 ROLLBACK TO SAVEPOINT sp5;
 ROLLBACK
@@ -145,7 +155,7 @@ ROLLBACK
 SAVEPOINT sp6;
 SAVEPOINT
 SELECT iceberg_catalog.create_table('test_ns', '', '{"type":"struct","fields":[]}'::JSONB);
-gsql:test/sql/create_table.sql:105: ERROR:  p_table_name is required and must not be empty
+gsql:test/sql/create_table.sql:107: ERROR:  p_table_name is required and must not be empty
 CONTEXT:  referenced column: create_table
 ROLLBACK TO SAVEPOINT sp6;
 ROLLBACK
@@ -153,7 +163,7 @@ ROLLBACK
 SAVEPOINT sp7;
 SAVEPOINT
 SELECT iceberg_catalog.create_table('test_ns', 'tbl_null_schema', NULL::JSONB);
-gsql:test/sql/create_table.sql:110: ERROR:  p_schema is required and must not be NULL
+gsql:test/sql/create_table.sql:112: ERROR:  p_schema is required and must not be NULL
 CONTEXT:  referenced column: create_table
 ROLLBACK TO SAVEPOINT sp7;
 ROLLBACK
@@ -168,7 +178,33 @@ SELECT iceberg_catalog.create_table(
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"config": {}, "metadata": {"refs": {}, "schemas": [{"type": "struct", "fields": [{"id": 1, "name": "id", "type": "long", "required": true}], "schema-id": 0}], "location": "file:///tmp/iceberg_warehouse/ns_props/tbl_props", "table-uuid": "<uuid>", "sort-orders": [{"fields": [], "order-id": 0}], "format-version": 2, "last-column-id": 1, "default-spec-id": 0, "last-updated-ms": <ts>, "partition-specs": [{"fields": [], "spec-id": 0}], "current-schema-id": 0, "last-partition-id": 999, "last-sequence-number": 0, "default-sort-order-id": 0}, "metadata-location": "file:///tmp/iceberg_warehouse/ns_props/tbl_props/metadata/00000-<uuid>.metadata.json"}
 (1 row)
--- 9. 验证最后一个外表也存在
+-- 9. binary 类型字段
+SELECT iceberg_catalog.create_table(
+    'ns_binary',
+    'bin_tbl',
+    '{"type":"struct","fields":[
+        {"id":1,"name":"id","type":"long","required":true},
+        {"id":2,"name":"blob","type":"binary","required":false}
+    ]}'::JSONB
+);
+                                                                                                                                                                                                                                                                                                                                                                                                 create_table                                                                                                                                                                                                                                                                                                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"config": {}, "metadata": {"refs": {}, "schemas": [{"type": "struct", "fields": [{"id": 1, "name": "id", "type": "long", "required": true}, {"id": 2, "name": "blob", "type": "binary", "required": false}], "schema-id": 0}], "location": "file:///tmp/iceberg_warehouse/ns_binary/bin_tbl", "table-uuid": "<uuid>", "sort-orders": [{"fields": [], "order-id": 0}], "format-version": 2, "last-column-id": 2, "default-spec-id": 0, "last-updated-ms": <ts>, "partition-specs": [{"fields": [], "spec-id": 0}], "current-schema-id": 0, "last-partition-id": 999, "last-sequence-number": 0, "default-sort-order-id": 0}, "metadata-location": "file:///tmp/iceberg_warehouse/ns_binary/bin_tbl/metadata/00000-<uuid>.metadata.json"}
+(1 row)
+-- 10. fixed 类型字段
+SELECT iceberg_catalog.create_table(
+    'ns_fixed',
+    'fix_tbl',
+    '{"type":"struct","fields":[
+        {"id":1,"name":"id","type":"long","required":true},
+        {"id":2,"name":"hash","type":"fixed[16]","required":false}
+    ]}'::JSONB
+);
+                                                                                                                                                                                                                                                                                                                                                                                                  create_table                                                                                                                                                                                                                                                                                                                                                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"config": {}, "metadata": {"refs": {}, "schemas": [{"type": "struct", "fields": [{"id": 1, "name": "id", "type": "long", "required": true}, {"id": 2, "name": "hash", "type": "fixed[16]", "required": false}], "schema-id": 0}], "location": "file:///tmp/iceberg_warehouse/ns_fixed/fix_tbl", "table-uuid": "<uuid>", "sort-orders": [{"fields": [], "order-id": 0}], "format-version": 2, "last-column-id": 2, "default-spec-id": 0, "last-updated-ms": <ts>, "partition-specs": [{"fields": [], "spec-id": 0}], "current-schema-id": 0, "last-partition-id": 999, "last-sequence-number": 0, "default-sort-order-id": 0}, "metadata-location": "file:///tmp/iceberg_warehouse/ns_fixed/fix_tbl/metadata/00000-<uuid>.metadata.json"}
+(1 row)
+-- 11. 验证最后一个外表也存在
 SELECT count(*) = 1 AS foreign_table_exists
 FROM pg_class c
 JOIN pg_namespace n ON c.relnamespace = n.oid

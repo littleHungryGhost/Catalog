@@ -6,12 +6,72 @@
 BEGIN;
 BEGIN
 INSERT INTO iceberg_catalog.namespaces(catalog_name, namespace, properties)
-VALUES (current_database(), 'test_ns', '{}'::JSONB);
-INSERT 0 1
+VALUES (current_database(), 'test_ns', '{}'::JSONB),
+       (current_database(), 'ns', '{}'::JSONB);
+INSERT 0 2
 -- ============================================================================
--- 第一部分：正常场景 — 返回类型与结构校验
+-- 第一部分：参数校验 — 报错场景（先于 META 调用，不依赖 jsonb_agg）
 -- ============================================================================
--- 1. 仅使用 p_updates，返回合法 JSONB
+-- 1. p_namespace 为空字符串 → P0001
+SAVEPOINT sp1;
+SAVEPOINT
+SELECT iceberg_catalog.update_namespace_properties('', p_updates => '{"key":"val"}'::JSONB);
+gsql:test/sql/update_namespace_properties.sql:19: ERROR:  namespace must not be empty
+CONTEXT:  referenced column: update_namespace_properties
+ROLLBACK TO SAVEPOINT sp1;
+ROLLBACK
+-- 2. p_namespace 为 NULL → P0001
+SAVEPOINT sp2;
+SAVEPOINT
+SELECT iceberg_catalog.update_namespace_properties(NULL::TEXT, p_updates => '{"key":"val"}'::JSONB);
+gsql:test/sql/update_namespace_properties.sql:24: ERROR:  namespace must not be empty
+CONTEXT:  referenced column: update_namespace_properties
+ROLLBACK TO SAVEPOINT sp2;
+ROLLBACK
+-- 3. p_removals 和 p_updates 同时为 NULL → P0001
+SAVEPOINT sp3;
+SAVEPOINT
+SELECT iceberg_catalog.update_namespace_properties('ns');
+gsql:test/sql/update_namespace_properties.sql:29: ERROR:  p_removals and p_updates cannot both be NULL
+CONTEXT:  referenced column: update_namespace_properties
+ROLLBACK TO SAVEPOINT sp3;
+ROLLBACK
+-- 4. p_removals 不是 JSONB 数组 → P0001
+SAVEPOINT sp4;
+SAVEPOINT
+SELECT iceberg_catalog.update_namespace_properties('ns', p_removals => '"not_an_array"'::JSONB);
+gsql:test/sql/update_namespace_properties.sql:34: ERROR:  p_removals must be a JSONB array
+CONTEXT:  referenced column: update_namespace_properties
+ROLLBACK TO SAVEPOINT sp4;
+ROLLBACK
+-- 5. p_removals 数组含非字符串元素 → P0001
+SAVEPOINT sp5;
+SAVEPOINT
+SELECT iceberg_catalog.update_namespace_properties('ns', p_removals => '[123, true]'::JSONB);
+gsql:test/sql/update_namespace_properties.sql:39: ERROR:  p_removals must be a JSONB array of strings
+CONTEXT:  referenced column: update_namespace_properties
+ROLLBACK TO SAVEPOINT sp5;
+ROLLBACK
+-- 6. p_updates 不是 JSONB object → P0001
+SAVEPOINT sp6;
+SAVEPOINT
+SELECT iceberg_catalog.update_namespace_properties('ns', p_updates => '"not_an_object"'::JSONB);
+gsql:test/sql/update_namespace_properties.sql:44: ERROR:  p_updates must be a JSONB object
+CONTEXT:  referenced column: update_namespace_properties
+ROLLBACK TO SAVEPOINT sp6;
+ROLLBACK
+-- 7. removals ∩ updates ≠ ∅ → P0006
+SAVEPOINT sp7;
+SAVEPOINT
+SELECT iceberg_catalog.update_namespace_properties('ns', p_removals => '["same_key"]'::JSONB, p_updates => '{"same_key":"val"}'::JSONB);
+gsql:test/sql/update_namespace_properties.sql:49: ERROR:  removals and updates must not contain overlapping keys
+CONTEXT:  referenced column: update_namespace_properties
+ROLLBACK TO SAVEPOINT sp7;
+ROLLBACK
+-- ============================================================================
+-- 第二部分：正常场景 — 返回类型与结构校验
+-- ============================================================================
+-- 8. 仅使用 p_updates，返回合法 JSONB
 SELECT jsonb_typeof(iceberg_catalog.update_namespace_properties(
     'test_ns',
     p_updates => '{"owner": "alice"}'::JSONB
@@ -108,7 +168,7 @@ SELECT iceberg_catalog.update_namespace_properties(
     '',
     p_updates => '{"key": "val"}'::JSONB
 );
-gsql:test/sql/update_namespace_properties.sql:89: ERROR:  namespace must not be empty
+gsql:test/sql/update_namespace_properties.sql:129: ERROR:  namespace must not be empty
 CONTEXT:  referenced column: update_namespace_properties
 ROLLBACK TO SAVEPOINT sp6;
 ROLLBACK
@@ -119,7 +179,7 @@ SELECT iceberg_catalog.update_namespace_properties(
     NULL::TEXT,
     p_updates => '{"key": "val"}'::JSONB
 );
-gsql:test/sql/update_namespace_properties.sql:97: ERROR:  namespace must not be empty
+gsql:test/sql/update_namespace_properties.sql:137: ERROR:  namespace must not be empty
 CONTEXT:  referenced column: update_namespace_properties
 ROLLBACK TO SAVEPOINT sp7;
 ROLLBACK
@@ -127,7 +187,7 @@ ROLLBACK
 SAVEPOINT sp8;
 SAVEPOINT
 SELECT iceberg_catalog.update_namespace_properties('ns');
-gsql:test/sql/update_namespace_properties.sql:102: ERROR:  p_removals and p_updates cannot both be NULL
+gsql:test/sql/update_namespace_properties.sql:142: ERROR:  p_removals and p_updates cannot both be NULL
 CONTEXT:  referenced column: update_namespace_properties
 ROLLBACK TO SAVEPOINT sp8;
 ROLLBACK
@@ -141,7 +201,7 @@ SELECT iceberg_catalog.update_namespace_properties(
     'ns',
     p_removals => '"not_an_array"'::JSONB
 );
-gsql:test/sql/update_namespace_properties.sql:114: ERROR:  p_removals must be a JSONB array
+gsql:test/sql/update_namespace_properties.sql:154: ERROR:  p_removals must be a JSONB array
 CONTEXT:  referenced column: update_namespace_properties
 ROLLBACK TO SAVEPOINT sp9;
 ROLLBACK
@@ -152,7 +212,7 @@ SELECT iceberg_catalog.update_namespace_properties(
     'ns',
     p_updates => '"not_an_object"'::JSONB
 );
-gsql:test/sql/update_namespace_properties.sql:122: ERROR:  p_updates must be a JSONB object
+gsql:test/sql/update_namespace_properties.sql:162: ERROR:  p_updates must be a JSONB object
 CONTEXT:  referenced column: update_namespace_properties
 ROLLBACK TO SAVEPOINT sp10;
 ROLLBACK
@@ -164,7 +224,7 @@ SELECT iceberg_catalog.update_namespace_properties(
     p_removals => '["same_key"]'::JSONB,
     p_updates  => '{"same_key": "val"}'::JSONB
 );
-gsql:test/sql/update_namespace_properties.sql:131: ERROR:  removals and updates must not contain overlapping keys
+gsql:test/sql/update_namespace_properties.sql:171: ERROR:  removals and updates must not contain overlapping keys
 CONTEXT:  referenced column: update_namespace_properties
 ROLLBACK TO SAVEPOINT sp11;
 ROLLBACK
@@ -174,36 +234,28 @@ ROLLBACK
 -- 12. p_removals 为空数组（合法，无可删除的 key）
 INSERT INTO iceberg_catalog.namespaces(catalog_name, namespace, properties)
 VALUES (current_database(), 'ns', '{}'::JSONB);
-INSERT 0 1
+gsql:test/sql/update_namespace_properties.sql:180: ERROR:  duplicate key value violates unique constraint "namespaces_pkey"
+DETAIL:  Key (catalog_name, namespace)=(<test_db>, ns) already exists.
 SELECT iceberg_catalog.update_namespace_properties(
     'ns',
     p_removals => '[]'::JSONB
 ) = '{"updated":[],"removed":[],"missing":[]}'::JSONB AS empty_removals_ok;
- empty_removals_ok 
--------------------
- t
-(1 row)
+gsql:test/sql/update_namespace_properties.sql:185: ERROR:  current transaction is aborted, commands ignored until end of transaction block, firstChar[Q]
 -- 13. p_updates 为空对象（合法，无更新的 key）
 SELECT iceberg_catalog.update_namespace_properties(
     'ns',
     p_updates => '{}'::JSONB
 ) = '{"updated":[],"removed":[],"missing":[]}'::JSONB AS empty_updates_ok;
- empty_updates_ok 
-------------------
- t
-(1 row)
+gsql:test/sql/update_namespace_properties.sql:191: ERROR:  current transaction is aborted, commands ignored until end of transaction block, firstChar[Q]
 -- 14. 使用位置参数
 INSERT INTO iceberg_catalog.namespaces(catalog_name, namespace, properties)
 VALUES (current_database(), 'positional_ns', '{"x": "old"}'::JSONB);
-INSERT 0 1
+gsql:test/sql/update_namespace_properties.sql:195: ERROR:  current transaction is aborted, commands ignored until end of transaction block, firstChar[Q]
 SELECT iceberg_catalog.update_namespace_properties(
     'positional_ns',
     '["x"]'::JSONB,
     '{"y": "z"}'::JSONB
 ) = '{"updated":["y"],"removed":["x"],"missing":[]}'::JSONB AS positional_args_ok;
- positional_args_ok 
---------------------
- t
-(1 row)
+gsql:test/sql/update_namespace_properties.sql:201: ERROR:  current transaction is aborted, commands ignored until end of transaction block, firstChar[Q]
 ROLLBACK;
 ROLLBACK

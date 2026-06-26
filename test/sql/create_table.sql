@@ -12,6 +12,8 @@ SELECT iceberg_catalog.create_namespace('test_ns', '{}'::jsonb);
 SELECT iceberg_catalog.create_namespace('ns_full', '{}'::jsonb);
 SELECT iceberg_catalog.create_namespace('ns_stage', '{}'::jsonb);
 SELECT iceberg_catalog.create_namespace('ns_props', '{}'::jsonb);
+SELECT iceberg_catalog.create_namespace('ns_binary', '{}'::jsonb);
+SELECT iceberg_catalog.create_namespace('ns_fixed', '{}'::jsonb);
 
 -- 1. 基础调用：仅填 3 个必填参数，返回合法 JSONB
 SELECT jsonb_typeof(iceberg_catalog.create_table(
@@ -118,7 +120,27 @@ SELECT iceberg_catalog.create_table(
     p_properties => '{}'::JSONB
 );
 
--- 9. 验证最后一个外表也存在
+-- 9. binary 类型字段
+SELECT iceberg_catalog.create_table(
+    'ns_binary',
+    'bin_tbl',
+    '{"type":"struct","fields":[
+        {"id":1,"name":"id","type":"long","required":true},
+        {"id":2,"name":"blob","type":"binary","required":false}
+    ]}'::JSONB
+);
+
+-- 10. fixed 类型字段
+SELECT iceberg_catalog.create_table(
+    'ns_fixed',
+    'fix_tbl',
+    '{"type":"struct","fields":[
+        {"id":1,"name":"id","type":"long","required":true},
+        {"id":2,"name":"hash","type":"fixed[16]","required":false}
+    ]}'::JSONB
+);
+
+-- 11. 验证最后一个外表也存在
 SELECT count(*) = 1 AS foreign_table_exists
 FROM pg_class c
 JOIN pg_namespace n ON c.relnamespace = n.oid
